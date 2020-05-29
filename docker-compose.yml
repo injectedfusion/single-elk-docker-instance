@@ -1,0 +1,90 @@
+# docker-compose.yml
+
+version: '3.8'
+services:
+  # Elasticsearch Container
+  elasticsearch:  
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.7.0
+    container_name: elk_es
+    volumes:
+       - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
+       - ./esdata/:/usr/share/elasticsearch/data/
+    ports:
+       - "9200:9200"
+       - "9300:9300"
+    environment:
+      ES_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+       - elk
+    healthcheck:
+      test: ["CMD", "curl","-s" ,"-f", "http://localhost:9200/_cat/health"]
+ 
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.7.0
+    container_name: elk_kibana
+    volumes:
+      - ./kibana.yml:/usr/share/kibana/config/kibana.yml
+    ports:
+      - "5601:5601"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-f", "http://localhost:5601/"]
+      retries: 3
+ 
+ # Logstash Container   
+  logstash:
+    labels:
+       com.example.service: "logstash"
+       com.example.description: "For logging data"
+    image: docker.elastic.co/logstash/logstash:7.7.0
+    container_name: elk_logstash
+    volumes:
+       - ./logstashsettings/logstash.yml:/usr/share/logstash/config/logstash.yml
+       - ./pipeline:/usr/share/logstash/pipeline
+    ports:
+      - "5000:5000"
+    environment:
+      LS_JAVA_OPTS: "-Xmx256m -Xms256m"
+    networks:
+      - elk
+    depends_on:
+      - elasticsearch
+ 
+ # Filebeat Container   
+  filebeat:
+    command: filebeat -e -strict.perms=false
+    image: elastic/filebeat:7.7.0
+    container_name: elk_filebeat
+    volumes:
+      - ./filebeat.yml:/usr/share/filebeat/filebeat.yml
+      - ./log:/var/log
+    networks:
+      - elk
+    depends_on:
+      - logstash
+  
+  # Elastalert Container
+  elastalert:
+    image: bitsensor/elastalert:latest
+    container_name: elk_elastalert
+    volumes:
+        - ./config/elastalert.yaml:/opt/elastalert/config.yaml
+        - ./config/elastalert-test.yaml:/opt/elastalert/config-test.yaml
+        - ./config/config.json:/opt/elastalert-server/config/config.json
+        - ./rules:/opt/elastalert/rules
+        - ./rule_templates:/opt/elastalert/rule_templates
+    ports:
+       - "3030:3030"
+       - "3333:3333"
+    networks:
+       - elk
+    depends_on:
+       - elasticsearch
+
+networks:
+  elk:
+    driver: bridge
